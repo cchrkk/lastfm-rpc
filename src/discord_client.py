@@ -44,14 +44,6 @@ class DiscordClient:
         self._current_status: str = "offline"
         self._on_sessions_change: asyncio.Event | None = None
 
-    @property
-    def has_other_sessions(self) -> bool:
-        return len(self._other_sessions) > 0
-
-    @property
-    def current_status(self) -> str:
-        return self._current_status
-
     def set_sessions_callback(self, event: asyncio.Event) -> None:
         self._on_sessions_change = event
 

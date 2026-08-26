@@ -26,12 +26,8 @@ def setup_logging(level: str) -> None:
         logging.getLogger("pylast").setLevel(logging.WARNING)
 
 
-def _resolve_status(discord: DiscordClient, is_playing: bool) -> str:
-    if is_playing:
-        return "dnd"
-    if discord.has_other_sessions:
-        return "online"
-    return "offline"
+def _resolve_status(is_playing: bool) -> str:
+    return "dnd" if is_playing else "offline"
 
 
 async def poll_loop(
@@ -51,7 +47,7 @@ async def poll_loop(
                     state["start"] = 0.0
                     state["id"] = None
                     await discord.clear_presence()
-                    await discord.set_status(_resolve_status(discord, False))
+                    await discord.set_status(_resolve_status(False))
             else:
                 track_id = f"{track.artist}:{track.title}"
                 if track_id != state["id"]:
@@ -85,7 +81,7 @@ async def session_watcher(discord: DiscordClient, state: dict) -> None:
         await event.clear()
         await event.wait()
         is_playing = state["track"] is not None
-        await discord.set_status(_resolve_status(discord, is_playing))
+        await discord.set_status(_resolve_status(is_playing))
         if is_playing:
             track = state["track"]
             await discord.set_presence(
@@ -126,7 +122,7 @@ async def main() -> None:
         session_task = asyncio.create_task(session_watcher(discord, state))
 
         await discord._connected.wait()
-        await discord.set_status(_resolve_status(discord, False))
+                    await discord.set_status("dnd")
         log.info("In ascolto su Last.fm (%s)...", config.lastfm_username)
 
         await stop.wait()
