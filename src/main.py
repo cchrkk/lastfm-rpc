@@ -122,7 +122,7 @@ async def main() -> None:
         session_task = asyncio.create_task(session_watcher(discord, state))
 
         await discord._connected.wait()
-                    await discord.set_status("dnd")
+        await discord.set_status(_resolve_status(False))
         log.info("In ascolto su Last.fm (%s)...", config.lastfm_username)
 
         await stop.wait()
