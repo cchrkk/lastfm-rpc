@@ -19,10 +19,19 @@ OP_HEARTBEAT_ACK = 11
 class DiscordClient:
     GATEWAY_URL = "wss://gateway.discord.gg/?v=10&encoding=json"
 
-    def __init__(self, token: str, app_id: str = "1108588077900898414", lastfm_username: str = ""):
+    def __init__(
+        self,
+        token: str,
+        app_id: str = "1108588077900898414",
+        lastfm_username: str = "",
+        button_text: str = "",
+        button_url: str = "",
+    ):
         self._token = token
         self._app_id = app_id
         self._lastfm_username = lastfm_username
+        self._button_text = button_text
+        self._button_url = button_url
         self._session: aiohttp.ClientSession | None = None
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._heartbeat_interval: float = 41.25
@@ -62,11 +71,9 @@ class DiscordClient:
 
     async def _run(self) -> None:
         self._ws = await self._session.ws_connect(GATEWAY_URL, max_msg_size=16 * 1024 * 1024)
-        log.info("Gateway connesso, in attesa di HELLO...")
         msg = await self._ws.receive()
         data = json.loads(msg.data)
         self._heartbeat_interval = data["d"]["heartbeat_interval"] / 1000.0
-        log.info("Heartbeat interval: %.1fs", self._heartbeat_interval)
         await self._identify()
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         try:
@@ -78,11 +85,6 @@ class DiscordClient:
                     await self._heartbeat_task
                 except asyncio.CancelledError:
                     pass
-            try:
-                close_code = self._ws.close_code
-                log.warning("WebSocket close code: %s", close_code)
-            except Exception:
-                pass
 
     async def _identify(self) -> None:
         payload = {
@@ -101,7 +103,6 @@ class DiscordClient:
             },
         }
         await self._ws.send_json(payload)
-        log.info("IDENTIFY inviato")
 
     async def _heartbeat_loop(self) -> None:
         while True:
@@ -128,11 +129,7 @@ class DiscordClient:
         if should_dnd != self._dnd_mode:
             self._dnd_mode = should_dnd
             self._current_status = "dnd" if should_dnd else "online"
-            log.info(
-                "Status: %s (sessioni attive: %s)",
-                self._current_status,
-                len(self._other_sessions),
-            )
+            log.info("Status: %s", self._current_status)
             if self._on_dnd_change:
                 self._on_dnd_change.set()
 
@@ -152,16 +149,11 @@ class DiscordClient:
                 elif event == "READY":
                     d = data["d"]
                     self._session_id = d.get("session", "")
-                    log.info(
-                        "READY - user_id: %s, session: %s",
-                        d.get("user", {}).get("id"),
-                        self._session_id,
-                    )
                     sessions = d.get("sessions", [])
                     self._parse_sessions(sessions)
                     log.info(
-                        "Sessioni altre: %d -> status: %s",
-                        len(self._other_sessions),
+                        "Connesso (user: %s, status: %s)",
+                        d.get("user", {}).get("id"),
                         self._current_status,
                     )
                     self._ready.set()
@@ -170,13 +162,9 @@ class DiscordClient:
                     sessions = data["d"]
                     self._parse_sessions(sessions)
                 elif event == "RESUMED":
-                    log.info("RESUMED ricevuto")
                     self._ready.set()
                     self._connected.set()
-                else:
-                    log.debug("Evento: %s op: %s", event, op)
             elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                log.error("WebSocket chiuso: type=%s data=%s", msg.type, msg.data)
                 break
 
     async def set_presence(
@@ -189,10 +177,8 @@ class DiscordClient:
         duration: int,
     ) -> None:
         if not self._ready.is_set():
-            log.warning("set_presence: non pronto, skip")
             return
         if self._ws.closed:
-            log.warning("set_presence: WebSocket chiuso, skip")
             return
 
         assets = {}
@@ -205,6 +191,9 @@ class DiscordClient:
         if self._lastfm_username:
             buttons.append("Profile")
             button_urls.append(f"https://www.last.fm/user/{self._lastfm_username}")
+        elif self._button_text and self._button_url:
+            buttons.append(self._button_text)
+            button_urls.append(self._button_url)
 
         activity = {
             "application_id": self._app_id,
@@ -231,7 +220,6 @@ class DiscordClient:
         }
         try:
             await self._ws.send_json(payload)
-            log.info("Presence inviato: %s - %s (status=%s)", artist, title, self._current_status)
         except Exception as e:
             log.error("Errore invio presence: %s", e)
 
@@ -251,24 +239,6 @@ class DiscordClient:
             await self._ws.send_json(payload)
         except Exception as e:
             log.error("Errore pulizia presence: %s", e)
-
-    async def force_status(self, status: str) -> None:
-        if not self._ready.is_set():
-            return
-        self._current_status = status
-        payload = {
-            "op": OP_PRESENCE_UPDATE,
-            "d": {
-                "since": None,
-                "activities": [],
-                "status": status,
-                "afk": False,
-            },
-        }
-        try:
-            await self._ws.send_json(payload)
-        except Exception as e:
-            log.error("Errore cambio status: %s", e)
 
     async def close(self) -> None:
         if self._heartbeat_task:

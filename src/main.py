@@ -32,7 +32,7 @@ async def poll_loop(
 
             if track is None:
                 if state["track"] is not None:
-                    log.info("Fine riproduzione: %s", state["track"].display)
+                    log.info("Stop: %s", state["track"].display)
                     await discord.clear_presence()
                     state["track"] = None
                     state["start"] = 0.0
@@ -40,7 +40,7 @@ async def poll_loop(
             else:
                 track_id = f"{track.artist}:{track.title}"
                 if track_id != state["id"]:
-                    log.info("Now playing: %s [%s]", track.display, track.album or "N/A")
+                    log.info("Playing: %s [%s]", track.display, track.album or "N/A")
                     state["start"] = time.time()
                     state["id"] = track_id
                     state["track"] = track
@@ -68,7 +68,6 @@ async def dnd_watcher(discord: DiscordClient, state: dict) -> None:
     while True:
         await event.clear()
         await event.wait()
-        log.info("Cambio status -> %s", "DND" if discord.is_dnd else "online")
         track = state["track"]
         if track:
             await discord.set_presence(
@@ -86,10 +85,15 @@ async def dnd_watcher(discord: DiscordClient, state: dict) -> None:
 async def main() -> None:
     config = Config.from_env()
     setup_logging(config.log_level)
-    log.info("Avvio Last.fm -> Discord RPC per %s", config.lastfm_username)
 
     async with aiohttp.ClientSession() as session:
-        discord = DiscordClient(config.discord_token, config.app_id, config.lastfm_username)
+        discord = DiscordClient(
+            config.discord_token,
+            config.app_id,
+            config.lastfm_username,
+            config.button_text,
+            config.button_url,
+        )
         lastfm = LastFMClient(config.lastfm_api_key, config.lastfm_username, session)
 
         state: dict = {"track": None, "start": 0.0, "id": None}
@@ -103,13 +107,10 @@ async def main() -> None:
         poll_task = asyncio.create_task(poll_loop(config, discord, lastfm, state))
         dnd_task = asyncio.create_task(dnd_watcher(discord, state))
 
-        log.info("In attesa di connessione Discord Gateway...")
         await discord._connected.wait()
-        log.info("Gateway connesso. Status iniziale: %s", "DND" if discord.is_dnd else "online")
-        log.info("Avvio polling Last.fm...")
+        log.info("In ascolto su Last.fm (%s)...", config.lastfm_username)
 
         await stop.wait()
-        log.info("Shutdown in corso...")
         poll_task.cancel()
         dnd_task.cancel()
         discord_task.cancel()
