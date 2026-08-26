@@ -41,6 +41,7 @@ class DiscordClient:
         self._ready = asyncio.Event()
         self._session_id: str = ""
         self._other_sessions: set[str] = set()
+        self._other_active: bool = False
         self._dnd_mode: bool = False
         self._current_status: str = "online"
         self._on_dnd_change: asyncio.Event | None = None
@@ -117,18 +118,27 @@ class DiscordClient:
 
     def _parse_sessions(self, sessions: list[dict]) -> None:
         self._other_sessions.clear()
+        self._other_active = False
         for s in sessions:
             sid = s.get("session_id", "")
             status = s.get("status", "offline")
             if sid and sid != self._session_id and status != "offline":
                 self._other_sessions.add(sid)
+                if s.get("activities"):
+                    self._other_active = True
         self._update_dnd()
 
     def _update_dnd(self) -> None:
-        should_dnd = len(self._other_sessions) == 0
-        if should_dnd != self._dnd_mode:
-            self._dnd_mode = should_dnd
-            self._current_status = "dnd" if should_dnd else "online"
+        if not self._other_sessions:
+            new_status = "offline"
+        elif self._other_active:
+            new_status = "dnd"
+        else:
+            new_status = "online"
+
+        if new_status != self._current_status:
+            self._current_status = new_status
+            self._dnd_mode = new_status == "dnd"
             log.info("Status: %s", self._current_status)
             if self._on_dnd_change:
                 self._on_dnd_change.set()
