@@ -41,17 +41,38 @@ class DiscordClient:
         self._ready = asyncio.Event()
         self._session_id: str = ""
         self._other_sessions: set[str] = set()
-        self._other_active: bool = False
-        self._dnd_mode: bool = False
-        self._current_status: str = "online"
-        self._on_dnd_change: asyncio.Event | None = None
+        self._current_status: str = "offline"
+        self._on_sessions_change: asyncio.Event | None = None
 
     @property
-    def is_dnd(self) -> bool:
-        return self._dnd_mode
+    def has_other_sessions(self) -> bool:
+        return len(self._other_sessions) > 0
 
-    def set_dnd_callback(self, event: asyncio.Event) -> None:
-        self._on_dnd_change = event
+    @property
+    def current_status(self) -> str:
+        return self._current_status
+
+    def set_sessions_callback(self, event: asyncio.Event) -> None:
+        self._on_sessions_change = event
+
+    async def set_status(self, status: str) -> None:
+        if status == self._current_status:
+            return
+        self._current_status = status
+        if self._ready.is_set() and self._ws and not self._ws.closed:
+            payload = {
+                "op": OP_PRESENCE_UPDATE,
+                "d": {
+                    "since": None,
+                    "activities": [],
+                    "status": status,
+                    "afk": False,
+                },
+            }
+            try:
+                await self._ws.send_json(payload)
+            except Exception:
+                pass
 
     async def connect(self) -> None:
         self._session = aiohttp.ClientSession()
@@ -98,7 +119,7 @@ class DiscordClient:
                     "device": "",
                 },
                 "presence": {
-                    "status": "dnd",
+                    "status": "offline",
                     "afk": False,
                 },
             },
@@ -118,30 +139,13 @@ class DiscordClient:
 
     def _parse_sessions(self, sessions: list[dict]) -> None:
         self._other_sessions.clear()
-        self._other_active = False
         for s in sessions:
             sid = s.get("session_id", "")
             status = s.get("status", "offline")
             if sid and sid != self._session_id and status != "offline":
                 self._other_sessions.add(sid)
-                if s.get("activities"):
-                    self._other_active = True
-        self._update_dnd()
-
-    def _update_dnd(self) -> None:
-        if not self._other_sessions:
-            new_status = "offline"
-        elif self._other_active:
-            new_status = "dnd"
-        else:
-            new_status = "online"
-
-        if new_status != self._current_status:
-            self._current_status = new_status
-            self._dnd_mode = new_status == "dnd"
-            log.info("Status: %s", self._current_status)
-            if self._on_dnd_change:
-                self._on_dnd_change.set()
+        if self._on_sessions_change:
+            self._on_sessions_change.set()
 
     async def _listen(self) -> None:
         async for msg in self._ws:
@@ -152,7 +156,7 @@ class DiscordClient:
                 self._sequence = data.get("s", self._sequence)
 
                 if op == 4:
-                    log.error("INVALID SESSION (op 4): %s", data.get("d"))
+                    log.error("INVALID SESSION (op 4)")
                     break
                 elif op == OP_HEARTBEAT_ACK:
                     pass
@@ -161,11 +165,7 @@ class DiscordClient:
                     self._session_id = d.get("session", "")
                     sessions = d.get("sessions", [])
                     self._parse_sessions(sessions)
-                    log.info(
-                        "Connesso (user: %s, status: %s)",
-                        d.get("user", {}).get("id"),
-                        self._current_status,
-                    )
+                    log.info("Connesso (user: %s)", d.get("user", {}).get("id"))
                     self._ready.set()
                     self._connected.set()
                 elif event == "SESSIONS_REPLACE":

@@ -20,6 +20,14 @@ def setup_logging(level: str) -> None:
     )
 
 
+def _resolve_status(discord: DiscordClient, is_playing: bool) -> str:
+    if is_playing:
+        return "dnd"
+    if discord.has_other_sessions:
+        return "online"
+    return "offline"
+
+
 async def poll_loop(
     config: Config,
     discord: DiscordClient,
@@ -33,10 +41,11 @@ async def poll_loop(
             if track is None:
                 if state["track"] is not None:
                     log.info("Stop: %s", state["track"].display)
-                    await discord.clear_presence()
                     state["track"] = None
                     state["start"] = 0.0
                     state["id"] = None
+                    await discord.clear_presence()
+                    await discord.set_status(_resolve_status(discord, False))
             else:
                 track_id = f"{track.artist}:{track.title}"
                 if track_id != state["id"]:
@@ -44,6 +53,7 @@ async def poll_loop(
                     state["start"] = time.time()
                     state["id"] = track_id
                     state["track"] = track
+                    await discord.set_status("dnd")
 
                 await discord.set_presence(
                     artist=track.artist,
@@ -62,14 +72,16 @@ async def poll_loop(
         await asyncio.sleep(config.poll_interval)
 
 
-async def dnd_watcher(discord: DiscordClient, state: dict) -> None:
+async def session_watcher(discord: DiscordClient, state: dict) -> None:
     event = asyncio.Event()
-    discord.set_dnd_callback(event)
+    discord.set_sessions_callback(event)
     while True:
         await event.clear()
         await event.wait()
-        track = state["track"]
-        if track:
+        is_playing = state["track"] is not None
+        await discord.set_status(_resolve_status(discord, is_playing))
+        if is_playing:
+            track = state["track"]
             await discord.set_presence(
                 artist=track.artist,
                 title=track.title,
@@ -105,14 +117,14 @@ async def main() -> None:
 
         discord_task = asyncio.create_task(discord.connect())
         poll_task = asyncio.create_task(poll_loop(config, discord, lastfm, state))
-        dnd_task = asyncio.create_task(dnd_watcher(discord, state))
+        session_task = asyncio.create_task(session_watcher(discord, state))
 
         await discord._connected.wait()
         log.info("In ascolto su Last.fm (%s)...", config.lastfm_username)
 
         await stop.wait()
         poll_task.cancel()
-        dnd_task.cancel()
+        session_task.cancel()
         discord_task.cancel()
         await discord.close()
         try:
