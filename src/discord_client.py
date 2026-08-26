@@ -188,12 +188,12 @@ class DiscordClient:
 
         buttons = ["Last.fm"]
         button_urls = [url]
-        if self._lastfm_username:
-            buttons.append("Profile")
-            button_urls.append(f"https://www.last.fm/user/{self._lastfm_username}")
-        elif self._button_text and self._button_url:
+        if self._button_text and self._button_url:
             buttons.append(self._button_text)
             button_urls.append(self._button_url)
+        elif self._lastfm_username:
+            buttons.append("Profile")
+            button_urls.append(f"https://www.last.fm/user/{self._lastfm_username}")
 
         activity = {
             "application_id": self._app_id,
