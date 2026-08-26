@@ -18,8 +18,12 @@ def setup_logging(level: str) -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-    logging.getLogger("httpx").setLevel(logging.DEBUG)
-    logging.getLogger("pylast").setLevel(logging.DEBUG)
+    if level == "DEBUG":
+        logging.getLogger("httpx").setLevel(logging.DEBUG)
+        logging.getLogger("pylast").setLevel(logging.DEBUG)
+    else:
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("pylast").setLevel(logging.WARNING)
 
 
 def _resolve_status(discord: DiscordClient, is_playing: bool) -> str:
@@ -122,6 +126,7 @@ async def main() -> None:
         session_task = asyncio.create_task(session_watcher(discord, state))
 
         await discord._connected.wait()
+        await discord.set_status(_resolve_status(discord, False))
         log.info("In ascolto su Last.fm (%s)...", config.lastfm_username)
 
         await stop.wait()
