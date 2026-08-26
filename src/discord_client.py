@@ -41,6 +41,7 @@ class DiscordClient:
         self._ready = asyncio.Event()
         self._session_id: str = ""
         self._other_sessions: set[str] = set()
+        self._other_gaming: bool = False
         self._current_status: str = "offline"
         self._on_sessions_change: asyncio.Event | None = None
 
@@ -50,6 +51,10 @@ class DiscordClient:
     @property
     def has_other_sessions(self) -> bool:
         return len(self._other_sessions) > 0
+
+    @property
+    def other_gaming(self) -> bool:
+        return self._other_gaming
 
     async def set_status(self, status: str) -> None:
         if status == self._current_status:
@@ -135,13 +140,24 @@ class DiscordClient:
 
     def _parse_sessions(self, sessions: list[dict]) -> None:
         self._other_sessions.clear()
+        self._other_gaming = False
         for s in sessions:
             sid = s.get("session_id", "")
             status = s.get("status", "offline")
             if sid and sid != self._session_id and status != "offline":
                 self._other_sessions.add(sid)
+                for act in s.get("activities", []):
+                    if act.get("type") == 0:
+                        self._other_gaming = True
         if self._on_sessions_change:
             self._on_sessions_change.set()
+
+    def _parse_other_presence(self, d: dict) -> None:
+        gaming = any(a.get("type") == 0 for a in d.get("activities", []))
+        if gaming != self._other_gaming:
+            self._other_gaming = gaming
+            if self._on_sessions_change:
+                self._on_sessions_change.set()
 
     async def _listen(self) -> None:
         async for msg in self._ws:
@@ -167,6 +183,9 @@ class DiscordClient:
                 elif event == "SESSIONS_REPLACE":
                     sessions = data["d"]
                     self._parse_sessions(sessions)
+                elif event == "PRESENCE_UPDATE":
+                    d = data["d"]
+                    self._parse_other_presence(d)
                 elif event == "RESUMED":
                     self._ready.set()
                     self._connected.set()

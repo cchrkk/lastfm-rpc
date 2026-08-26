@@ -30,6 +30,10 @@ def _resolve_status(is_playing: bool) -> str:
     return "dnd" if is_playing else "offline"
 
 
+def _can_apply(discord: DiscordClient) -> bool:
+    return not (discord.has_other_sessions and discord.other_gaming)
+
+
 async def poll_loop(
     config: Config,
     discord: DiscordClient,
@@ -46,7 +50,7 @@ async def poll_loop(
                     state["track"] = None
                     state["start"] = 0.0
                     state["id"] = None
-                    if not discord.has_other_sessions:
+                    if _can_apply(discord):
                         await discord.clear_presence()
                         await discord.set_status(_resolve_status(False))
             else:
@@ -56,10 +60,10 @@ async def poll_loop(
                     state["start"] = time.time()
                     state["id"] = track_id
                     state["track"] = track
-                    if not discord.has_other_sessions:
+                    if _can_apply(discord):
                         await discord.set_status("dnd")
 
-                if not discord.has_other_sessions:
+                if _can_apply(discord):
                     await discord.set_presence(
                         artist=track.artist,
                         title=track.title,
@@ -84,7 +88,7 @@ async def session_watcher(discord: DiscordClient, state: dict) -> None:
         await event.clear()
         await event.wait()
 
-        if discord.has_other_sessions:
+        if not _can_apply(discord):
             await discord.set_status("offline")
             await discord.clear_presence()
             continue
