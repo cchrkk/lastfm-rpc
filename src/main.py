@@ -18,6 +18,8 @@ def setup_logging(level: str) -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    logging.getLogger("httpx").setLevel(logging.DEBUG)
+    logging.getLogger("pylast").setLevel(logging.DEBUG)
 
 
 def _resolve_status(discord: DiscordClient, is_playing: bool) -> str:
