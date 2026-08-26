@@ -46,8 +46,9 @@ async def poll_loop(
                     state["track"] = None
                     state["start"] = 0.0
                     state["id"] = None
-                    await discord.clear_presence()
-                    await discord.set_status(_resolve_status(False))
+                    if not discord.has_other_sessions:
+                        await discord.clear_presence()
+                        await discord.set_status(_resolve_status(False))
             else:
                 track_id = f"{track.artist}:{track.title}"
                 if track_id != state["id"]:
@@ -55,16 +56,18 @@ async def poll_loop(
                     state["start"] = time.time()
                     state["id"] = track_id
                     state["track"] = track
-                    await discord.set_status("dnd")
+                    if not discord.has_other_sessions:
+                        await discord.set_status("dnd")
 
-                await discord.set_presence(
-                    artist=track.artist,
-                    title=track.title,
-                    album=track.album,
-                    url=track.url,
-                    start_time=state["start"],
-                    duration=track.duration,
-                )
+                if not discord.has_other_sessions:
+                    await discord.set_presence(
+                        artist=track.artist,
+                        title=track.title,
+                        album=track.album,
+                        url=track.url,
+                        start_time=state["start"],
+                        duration=track.duration,
+                    )
 
         except asyncio.CancelledError:
             break
@@ -80,6 +83,12 @@ async def session_watcher(discord: DiscordClient, state: dict) -> None:
     while True:
         await event.clear()
         await event.wait()
+
+        if discord.has_other_sessions:
+            await discord.set_status("offline")
+            await discord.clear_presence()
+            continue
+
         is_playing = state["track"] is not None
         await discord.set_status(_resolve_status(is_playing))
         if is_playing:

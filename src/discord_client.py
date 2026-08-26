@@ -47,6 +47,10 @@ class DiscordClient:
     def set_sessions_callback(self, event: asyncio.Event) -> None:
         self._on_sessions_change = event
 
+    @property
+    def has_other_sessions(self) -> bool:
+        return len(self._other_sessions) > 0
+
     async def set_status(self, status: str) -> None:
         if status == self._current_status:
             return
